@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LINE Login sample</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+        color: #17201a;
+        background: #f4f8f5;
+      }
+      * { box-sizing: border-box; }
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: radial-gradient(circle at top, #e4f8e8, #f4f8f5 55%);
+      }
+      main {
+        width: min(100%, 440px);
+        padding: 40px 32px;
+        border: 1px solid #d6e5d9;
+        border-radius: 24px;
+        background: rgba(255, 255, 255, 0.88);
+        box-shadow: 0 20px 60px rgba(35, 72, 43, 0.12);
+        text-align: center;
+      }
+      .mark {
+        display: grid;
+        place-items: center;
+        width: 64px;
+        height: 64px;
+        margin: 0 auto 20px;
+        border-radius: 20px;
+        color: white;
+        background: #06c755;
+        font-size: 32px;
+        font-weight: 800;
+      }
+      h1 { margin: 0; font-size: 26px; letter-spacing: -0.03em; }
+      p { color: #617067; line-height: 1.7; }
+      button {
+        width: 100%;
+        margin-top: 16px;
+        padding: 14px 18px;
+        border: 0;
+        border-radius: 12px;
+        color: #fff;
+        background: #06c755;
+        cursor: pointer;
+        font: inherit;
+        font-weight: 700;
+      }
+      button:hover { background: #05ad4b; }
+      button:disabled { cursor: not-allowed; opacity: 0.55; }
+      .secondary { background: #17201a; }
+      .secondary:hover { background: #2c3830; }
+      .error {
+        color: #b42318;
+        font-size: 14px;
+        white-space: pre-wrap;
+      }
+      .profile {
+        margin: 24px 0 0;
+        padding: 16px;
+        border-radius: 14px;
+        background: #f0f7f1;
+        text-align: left;
+      }
+      .profile img { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; }
+      .profile strong { display: block; margin-top: 8px; }
+      .muted { margin-top: 24px; font-size: 12px; color: #7a887e; }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark">L</div>
+      <h1>LINE Login sample</h1>
+      <p id="message">Better AuthでLINEログインを試せます。</p>
+      <button id="login" type="button">LINEでログイン</button>
+      <button id="logout" class="secondary" type="button" hidden>ログアウト</button>
+      <div id="profile" class="profile" hidden></div>
+      <p id="error" class="error" hidden></p>
+      <p class="muted">Bun · Better Auth · LINE Login</p>
+    </main>
+
+    <script>
+      const loginButton = document.querySelector("#login");
+      const logoutButton = document.querySelector("#logout");
+      const message = document.querySelector("#message");
+      const profile = document.querySelector("#profile");
+      const error = document.querySelector("#error");
+
+      function showError(text) {
+        error.textContent = text;
+        error.hidden = false;
+      }
+
+      async function loadSession() {
+        const response = await fetch("/api/auth/get-session", {
+          headers: { Accept: "application/json" },
+        });
+        if (!response.ok) throw new Error("セッションの取得に失敗しました。");
+        return response.json();
+      }
+
+      function renderSession(data) {
+        const user = data?.user;
+        if (!user) {
+          loginButton.hidden = false;
+          logoutButton.hidden = true;
+          profile.hidden = true;
+          message.textContent = "Better AuthでLINEログインを試せます。";
+          return;
+        }
+
+        loginButton.hidden = true;
+        logoutButton.hidden = false;
+        profile.hidden = false;
+        message.textContent = "ログインしています。";
+        const image = user.image ? `<img src="${escapeHtml(user.image)}" alt="" />` : "";
+        profile.innerHTML = `
+          ${image}
+          <strong>${escapeHtml(user.name ?? "LINE user")}</strong>
+          <span>${escapeHtml(user.email ?? "LINEアカウント")}</span>
+        `;
+      }
+
+      function escapeHtml(value) {
+        return String(value).replace(/[&<>'"]/g, (character) => ({
+          "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"
+        }[character]));
+      }
+
+      loginButton.addEventListener("click", async () => {
+        loginButton.disabled = true;
+        error.hidden = true;
+        try {
+          const response = await fetch("/api/auth/sign-in/social", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ provider: "line", callbackURL: "/" }),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message ?? "LINEログインを開始できませんでした。");
+          if (!data.url) throw new Error("LINEログインURLが返されませんでした。");
+          window.location.assign(data.url);
+        } catch (cause) {
+          showError(cause.message);
+          loginButton.disabled = false;
+        }
+      });
+
+      logoutButton.addEventListener("click", async () => {
+        logoutButton.disabled = true;
+        await fetch("/api/auth/sign-out", { method: "POST" });
+        window.location.reload();
+      });
+
+      Promise.all([loadSession(), fetch("/config").then((response) => response.json())])
+        .then(([session, config]) => {
+          renderSession(session);
+          if (!config.lineConfigured) {
+            loginButton.disabled = true;
+            message.textContent = "LINEの認証情報が未設定です。READMEの手順を確認してください。";
+          }
+        })
+        .catch((cause) => showError(cause.message));
+    </script>
+  </body>
+</html>
